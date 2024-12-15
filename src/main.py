@@ -8,13 +8,11 @@ import asyncio
 import os
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field
-import httpx
 from PyPDF2 import PdfReader
 from dotenv import load_dotenv
 
 from crew.workflows import PaperToCodeWorkflow
+from ai_client import get_ai_client
 
 # Configure logging
 logging.basicConfig(
@@ -26,51 +24,6 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
-
-class OllamaRequest(BaseModel):
-    """Request model for Ollama API."""
-    model: str = Field(..., description="Name of the model to use")
-    prompt: str = Field(..., description="The prompt to send to the model")
-    stream: bool = Field(default=False, description="Whether to stream the response")
-    options: Optional[Dict[str, Any]] = Field(default=None, description="Additional model parameters")
-
-class OllamaClient:
-    """Client for interacting with Ollama API."""
-    
-    def __init__(self, base_url: str = "http://127.0.0.1:11434"):
-        self.base_url = base_url
-        self.client = httpx.AsyncClient(
-            base_url=base_url,
-            timeout=httpx.Timeout(300.0)  # 5 minutes timeout
-        )
-        self.model = "llama3.2:latest"  # Default model
-    
-    async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate a response from Ollama.
-        
-        Args:
-            prompt: The prompt to send to the model
-            **kwargs: Additional parameters for the request
-            
-        Returns:
-            Generated text response
-        """
-        request = OllamaRequest(
-            model=self.model,
-            prompt=prompt,
-            **kwargs
-        )
-        
-        response = await self.client.post(
-            "/api/generate",
-            json=request.model_dump(exclude_none=True)
-        )
-        response.raise_for_status()
-        return response.json()["response"]
-    
-    async def close(self):
-        """Close the HTTP client."""
-        await self.client.aclose()
 
 def read_paper(file_path: str) -> str:
     """Read paper content from a file, supporting both PDF and text formats.
@@ -94,25 +47,21 @@ def read_paper(file_path: str) -> str:
         
         for i, page in enumerate(reader.pages, 1):
             logger.info(f"Extracting text from page {i}/{total_pages}")
-            text += page.extract_text() + "\n"
-        
+            text += page.extract_text()
+            
         logger.info("PDF text extraction completed")
         return text
     else:
         # Handle text files
-        logger.info("Reading text file...")
-        with open(file_path, "r", encoding='utf-8') as f:
-            text = f.read()
-        logger.info("Text file reading completed")
-        return text
-
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
 
 async def main():
     """Main function to process papers and generate code."""
     logger.info("Starting Paper2Code")
     
-    # Initialize Ollama client
-    ollama = OllamaClient()
+    # Initialize AI client based on environment variable
+    ai_client = get_ai_client()
     
     try:
         # Example paper path - replace with actual path
@@ -121,9 +70,9 @@ async def main():
         # Read paper content
         paper_content = read_paper(paper_path)
         
-        # Generate code using Ollama
+        # Generate code using AI
         prompt = f"Convert this academic paper into executable code:\n\n{paper_content}"
-        response = await ollama.generate(prompt)
+        response = await ai_client.generate(prompt)
         
         logger.info("Generated code from paper:")
         print(response)
@@ -132,7 +81,7 @@ async def main():
         logger.error(f"Error processing paper: {e}")
         raise
     finally:
-        await ollama.close()
+        await ai_client.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
