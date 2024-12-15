@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any
 import httpx
 import openai
 from pydantic import BaseModel, Field
+import tiktoken
 
 class OllamaRequest(BaseModel):
     """Request model for Ollama API."""
@@ -82,7 +83,40 @@ class OpenAIClient(AIClient):
         self.client = openai.AsyncOpenAI(
             api_key=os.getenv("OPENAI_API_KEY")
         )
-        self.model = "gpt-4"  # Default model
+        self.model = "gpt-3.5-turbo-16k"  # Using 16k model for larger context
+        self.encoding = tiktoken.encoding_for_model(self.model)
+        self.max_tokens = 14000  # Leave room for response
+    
+    def _count_tokens(self, text: str) -> int:
+        """Count the number of tokens in a text."""
+        return len(self.encoding.encode(text))
+    
+    def _split_text(self, text: str, max_tokens: int) -> list[str]:
+        """Split text into chunks that fit within token limit."""
+        chunks = []
+        current_chunk = []
+        current_length = 0
+        
+        # Split into sentences (rough approximation)
+        sentences = text.split(". ")
+        
+        for sentence in sentences:
+            sentence_tokens = self._count_tokens(sentence)
+            
+            if current_length + sentence_tokens > max_tokens:
+                # Current chunk is full, start a new one
+                if current_chunk:
+                    chunks.append(". ".join(current_chunk) + ".")
+                current_chunk = [sentence]
+                current_length = sentence_tokens
+            else:
+                current_chunk.append(sentence)
+                current_length += sentence_tokens
+        
+        if current_chunk:
+            chunks.append(". ".join(current_chunk))
+        
+        return chunks
     
     async def generate(self, prompt: str, **kwargs) -> str:
         """Generate a response from OpenAI.
@@ -94,12 +128,34 @@ class OpenAIClient(AIClient):
         Returns:
             Generated text response
         """
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            **kwargs
-        )
-        return response.choices[0].message.content
+        # Split the prompt into manageable chunks
+        chunks = self._split_text(prompt, self.max_tokens)
+        responses = []
+        
+        for i, chunk in enumerate(chunks):
+            if i == 0:
+                chunk_prompt = f"You are analyzing an academic paper. This is part 1 of {len(chunks)}. Extract the key implementation details: {chunk}"
+            else:
+                chunk_prompt = f"This is part {i+1} of {len(chunks)} of the same paper. Continue analyzing: {chunk}"
+            
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": chunk_prompt}],
+                **kwargs
+            )
+            responses.append(response.choices[0].message.content)
+        
+        # If we had multiple chunks, summarize them
+        if len(responses) > 1:
+            summary_prompt = "Combine and summarize all the implementation details from the paper parts into a cohesive response: " + " ".join(responses)
+            final_response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": summary_prompt}],
+                **kwargs
+            )
+            return final_response.choices[0].message.content
+        
+        return responses[0]
     
     async def close(self):
         """Close any open connections."""
