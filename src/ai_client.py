@@ -44,13 +44,13 @@ class AIClient(ABC):
 class OllamaClient(AIClient):
     """Client for interacting with Ollama API."""
     
-    def __init__(self, base_url: str = "http://127.0.0.1:11434"):
+    def __init__(self, base_url: str = "http://127.0.0.1:11434", model: str = "llama3.2"):
         self.base_url = base_url
         self.client = httpx.AsyncClient(
             base_url=base_url,
             timeout=httpx.Timeout(300.0)  # 5 minutes timeout
         )
-        self.model = "llama3.2"  # Default to llama2 model
+        self.model = model  # Set model based on the parameter
     
     async def generate(self, prompt: str, **kwargs) -> str:
         """Generate a response from Ollama.

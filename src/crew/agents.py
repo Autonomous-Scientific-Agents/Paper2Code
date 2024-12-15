@@ -58,12 +58,13 @@ class BaseAgent:
     def __init__(self) -> None:
         """Initialize the agent with OpenAI client."""
         ai_provider = os.getenv("AI_PROVIDER")
+        ai_model = os.getenv("AI_MODEL")
         if ai_provider == "ollama":
-            self.client = OllamaClient()  # Use Ollama client
-            self.model = "llama3.2"  # Set model for Ollama
+            self.client = OllamaClient(model=ai_model)  # Use Ollama client with specified model
+            self.model = ai_model  # Set model for Ollama
         else:
             self.client = openai.AsyncClient()  # Default to OpenAI client
-            self.model = "gpt-4-turbo-preview"  # Set model for OpenAI
+            self.model = ai_model  # Set model for OpenAI
 
     async def _chat_completion(self, prompt: str) -> str:
         """Send a chat completion request to OpenAI API.
