@@ -8,9 +8,11 @@ import asyncio
 import os
 import logging
 from pathlib import Path
+from typing import Optional, Dict, Any
+from pydantic import BaseModel, Field
+import httpx
 from PyPDF2 import PdfReader
 from dotenv import load_dotenv
-import openai
 
 from crew.workflows import PaperToCodeWorkflow
 
@@ -25,9 +27,50 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-# Configure OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")
+class OllamaRequest(BaseModel):
+    """Request model for Ollama API."""
+    model: str = Field(..., description="Name of the model to use")
+    prompt: str = Field(..., description="The prompt to send to the model")
+    stream: bool = Field(default=False, description="Whether to stream the response")
+    options: Optional[Dict[str, Any]] = Field(default=None, description="Additional model parameters")
 
+class OllamaClient:
+    """Client for interacting with Ollama API."""
+    
+    def __init__(self, base_url: str = "http://127.0.0.1:11434"):
+        self.base_url = base_url
+        self.client = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=httpx.Timeout(300.0)  # 5 minutes timeout
+        )
+        self.model = "llama3.2:latest"  # Default model
+    
+    async def generate(self, prompt: str, **kwargs) -> str:
+        """Generate a response from Ollama.
+        
+        Args:
+            prompt: The prompt to send to the model
+            **kwargs: Additional parameters for the request
+            
+        Returns:
+            Generated text response
+        """
+        request = OllamaRequest(
+            model=self.model,
+            prompt=prompt,
+            **kwargs
+        )
+        
+        response = await self.client.post(
+            "/api/generate",
+            json=request.model_dump(exclude_none=True)
+        )
+        response.raise_for_status()
+        return response.json()["response"]
+    
+    async def close(self):
+        """Close the HTTP client."""
+        await self.client.aclose()
 
 def read_paper(file_path: str) -> str:
     """Read paper content from a file, supporting both PDF and text formats.
@@ -64,64 +107,32 @@ def read_paper(file_path: str) -> str:
         return text
 
 
-async def main() -> None:
+async def main():
     """Main function to process papers and generate code."""
-    logger.info("Starting Paper2Code process...")
+    logger.info("Starting Paper2Code")
     
-    # Initialize the workflow
-    logger.info("Initializing workflow...")
-    workflow = PaperToCodeWorkflow()
-
-    # Get the paper path from environment or use default
-    paper_path = os.getenv("PAPER_PATH", "paper.txt")
-    logger.info(f"Using paper path: {paper_path}")
+    # Initialize Ollama client
+    ollama = OllamaClient()
     
     try:
-        # Read the paper content
-        paper_text = read_paper(paper_path)
-        logger.info("Successfully read paper content")
-
-        # Process the paper and get code blocks and Docker configs
-        logger.info("Processing paper content...")
-        code_blocks, dockerfile, docker_compose = await workflow.process_paper(paper_text)
-        logger.info("Paper processing completed")
-
-        # Create output directory if it doesn't exist
-        output_dir = Path("outputs")
-        output_dir.mkdir(exist_ok=True)
-        logger.info(f"Created output directory: {output_dir}")
-
-        # Write Docker configurations
-        logger.info("Writing Docker configurations...")
-        dockerfile_path = output_dir / "Dockerfile"
-        compose_path = output_dir / "docker-compose.yml"
+        # Example paper path - replace with actual path
+        paper_path = "examples/paper.pdf"
         
-        with open(dockerfile_path, "w") as f:
-            f.write(dockerfile)
-        logger.info(f"Dockerfile written to: {dockerfile_path}")
+        # Read paper content
+        paper_content = read_paper(paper_path)
         
-        with open(compose_path, "w") as f:
-            f.write(docker_compose)
-        logger.info(f"docker-compose.yml written to: {compose_path}")
-
-        # Print the results
-        logger.info("\nGenerated code blocks:")
-        for i, block in enumerate(code_blocks, 1):
-            logger.info(f"\nCode Block {i}:")
-            logger.info(f"Language: {block.language}")
-            logger.info(f"Description: {block.description}")
-            logger.info("Code:")
-            logger.info(block.code)
-
-        logger.info("\nDocker configurations have been generated in the 'outputs' directory.")
-        logger.info("You can now build and run the Docker container using the generated files.")
-
-    except FileNotFoundError:
-        logger.error(f"Error: Paper file not found at {paper_path}")
-        logger.error("Please set the PAPER_PATH environment variable to point to your paper file.")
+        # Generate code using Ollama
+        prompt = f"Convert this academic paper into executable code:\n\n{paper_content}"
+        response = await ollama.generate(prompt)
+        
+        logger.info("Generated code from paper:")
+        print(response)
+        
     except Exception as e:
-        logger.error(f"An error occurred: {e}", exc_info=True)
-
+        logger.error(f"Error processing paper: {e}")
+        raise
+    finally:
+        await ollama.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
