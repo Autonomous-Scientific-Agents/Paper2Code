@@ -318,7 +318,7 @@ class DockerConfigGenerator(BaseAgent):
         prompt += "\nReturn only the Dockerfile content, without any explanations or additional text."
         
         response = await self._chat_completion(prompt)
-        return response
+        return response.strip('`')  # Remove markdown artifacts from the response
 
     async def generate_compose(self, code_blocks: List[CodeBlock], software_list: List[dict]) -> str:
         """Generate docker-compose.yml based on the code requirements.
@@ -358,7 +358,7 @@ class DockerConfigGenerator(BaseAgent):
             prompt += f"- {sw['name']}{version_str}: {sw['purpose']}\n"
         
         response = await self._chat_completion(prompt)
-        return response
+        return response.strip('`')  # Remove markdown artifacts from the response
 
     def _is_service_software(self, name: str) -> bool:
         """Check if the software typically runs as a service.

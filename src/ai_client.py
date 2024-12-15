@@ -44,11 +44,11 @@ class AIClient(ABC):
 class OllamaClient(AIClient):
     """Client for interacting with Ollama API."""
     
-    def __init__(self, base_url: str = "http://127.0.0.1:11434", model: str = "llama3.2"):
+    def __init__(self, base_url: str = "http://127.0.0.1:11434", model: str = "llama3.2", timeout: float = 600.0):
         self.base_url = base_url
         self.client = httpx.AsyncClient(
             base_url=base_url,
-            timeout=httpx.Timeout(300.0)  # 5 minutes timeout
+            timeout=httpx.Timeout(timeout)  # Increased timeout
         )
         self.model = model  # Set model based on the parameter
     
