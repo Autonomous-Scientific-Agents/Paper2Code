@@ -125,5 +125,8 @@ dmypy.json
 .pyre/
 
 
+outputs/*
+!outputs/.gitkeep
+
 examples/*
 !examples/.gitkeep

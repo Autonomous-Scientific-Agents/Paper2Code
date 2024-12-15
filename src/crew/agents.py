@@ -6,10 +6,13 @@ generating code, and testing the generated code.
 
 from typing import List
 from pydantic import BaseModel, Field
-from openai import AsyncClient
+import openai
 import json
 import os
+import logging
 from ai_client import OllamaClient
+
+logger = logging.getLogger(__name__)
 
 class CodeBlock(BaseModel):
     """Represents a block of code with its metadata."""
@@ -59,7 +62,7 @@ class BaseAgent:
             self.client = OllamaClient()  # Use Ollama client
             self.model = "llama3.2"  # Set model for Ollama
         else:
-            self.client = AsyncClient()  # Default to OpenAI client
+            self.client = openai.AsyncClient()  # Default to OpenAI client
             self.model = "gpt-4-turbo-preview"  # Set model for OpenAI
 
     async def _chat_completion(self, prompt: str) -> str:
@@ -75,19 +78,29 @@ class BaseAgent:
             response = await self.client.generate(prompt)
             return response  # Directly return the string response from Ollama
         else:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a helpful AI assistant that helps with "
-                            "code generation and analysis."
-                        )
-                    },
-                    {"role": "user", "content": prompt}
-                ]
-            )
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a helpful AI assistant that helps with "
+                                "code generation and analysis."
+                            )
+                        },
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+            except openai.RateLimitError:
+                logger.error("Rate limit exceeded. Please check your OpenAI API usage and consider upgrading your plan.")
+                return "Error: Rate limit exceeded."
+            except openai.OpenAIError as e:
+                logger.error(f"An OpenAI error occurred: {e}")
+                return f"Error: {e}"
+            except Exception as e:
+                logger.error(f"An unexpected error occurred: {e}")
+                return f"Error: {e}"
             return response.choices[0].message.content
 
 
@@ -301,7 +314,7 @@ class DockerConfigGenerator(BaseAgent):
             version_str = f" v{sw['version']}" if sw.get('version') else ""
             prompt += f"- {sw['name']}{version_str}: {sw['purpose']}\n"
         
-        prompt += "\nEnsure the Dockerfile follows best practices and security guidelines."
+        prompt += "\nReturn only the Dockerfile content, without any explanations or additional text."
         
         response = await self._chat_completion(prompt)
         return response
@@ -335,21 +348,13 @@ class DockerConfigGenerator(BaseAgent):
             "Generate a production-ready docker-compose.yml file for a project with these services:\n"
             f"{json.dumps(services, indent=2)}\n\n"
             "Software details:\n"
+            "Return only the docker-compose.yml content, without any explanations or additional text."
         )
         
         # Add detailed software information
         for sw in software_list:
             version_str = f" v{sw['version']}" if sw.get('version') else ""
             prompt += f"- {sw['name']}{version_str}: {sw['purpose']}\n"
-        
-        prompt += (
-            "\nEnsure the configuration:\n"
-            "1. Uses appropriate versions and tags\n"
-            "2. Includes necessary environment variables\n"
-            "3. Sets up proper networking between services\n"
-            "4. Uses volumes for persistent data\n"
-            "5. Follows security best practices\n"
-        )
         
         response = await self._chat_completion(prompt)
         return response
