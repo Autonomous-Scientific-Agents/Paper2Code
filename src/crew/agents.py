@@ -252,3 +252,96 @@ class CodeTester(BaseAgent):
                 code=code_block.code + "\n\n# No tests generated",
                 description=code_block.description + " (no tests)"
             )
+
+
+class DockerConfigGenerator(BaseAgent):
+    """Agent responsible for generating Docker configurations based on paper requirements."""
+
+    async def generate_dockerfile(self, code_blocks: List[CodeBlock]) -> str:
+        """Generate a Dockerfile based on the code requirements.
+
+        Args:
+            code_blocks: List of code blocks from the paper.
+
+        Returns:
+            String containing the Dockerfile content.
+        """
+        # Analyze code blocks to determine requirements
+        languages = set(block.language.lower() for block in code_blocks)
+        dependencies = self._extract_dependencies(code_blocks)
+        
+        # Generate Dockerfile content based on requirements
+        dockerfile_content = await self._generate_docker_config(languages, dependencies)
+        return dockerfile_content
+
+    async def generate_compose(self, code_blocks: List[CodeBlock]) -> str:
+        """Generate docker-compose.yml based on the code requirements.
+
+        Args:
+            code_blocks: List of code blocks from the paper.
+
+        Returns:
+            String containing the docker-compose.yml content.
+        """
+        # Analyze service requirements from code blocks
+        services = self._identify_services(code_blocks)
+        
+        # Generate docker-compose content
+        compose_content = await self._generate_compose_config(services)
+        return compose_content
+
+    def _extract_dependencies(self, code_blocks: List[CodeBlock]) -> List[str]:
+        """Extract required dependencies from code blocks."""
+        dependencies = set()
+        for block in code_blocks:
+            # Look for import statements and requirements
+            if block.language.lower() == "python":
+                for line in block.code.split("\n"):
+                    if line.startswith(("import ", "from ")):
+                        package = line.split()[1].split(".")[0]
+                        if package not in ["os", "sys", "typing"]:
+                            dependencies.add(package)
+        return list(dependencies)
+
+    def _identify_services(self, code_blocks: List[CodeBlock]) -> List[dict]:
+        """Identify required services from code blocks."""
+        services = []
+        current_service = {}
+        
+        for block in code_blocks:
+            # Analyze code to identify service requirements
+            if "server" in block.description.lower() or "api" in block.description.lower():
+                current_service = {
+                    "name": block.description.split()[0].lower(),
+                    "type": "web",
+                    "language": block.language,
+                    "code": block.code
+                }
+                services.append(current_service)
+                
+        return services
+
+    async def _generate_docker_config(self, languages: set, dependencies: List[str]) -> str:
+        """Generate Dockerfile content based on requirements."""
+        prompt = f"""Generate a Dockerfile for a project with the following requirements:
+        Languages: {', '.join(languages)}
+        Dependencies: {', '.join(dependencies)}
+        The Dockerfile should follow best practices and be production-ready."""
+        
+        response = await self.client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
+
+    async def _generate_compose_config(self, services: List[dict]) -> str:
+        """Generate docker-compose.yml content based on services."""
+        prompt = f"""Generate a docker-compose.yml file for a project with the following services:
+        {json.dumps(services, indent=2)}
+        The configuration should follow best practices and be production-ready."""
+        
+        response = await self.client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
