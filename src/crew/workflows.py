@@ -13,18 +13,20 @@ from .agents import (
     CodeTester,
     PaperParser,
     DockerConfigGenerator,
+    SoftwareExtractor,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class PaperToCodeWorkflow:
-    """Main workflow for converting academic papers to code."""
+    """Workflow for converting academic papers to code."""
 
     def __init__(self) -> None:
         """Initialize the workflow with required agents."""
         logger.info("Initializing PaperToCodeWorkflow agents...")
         self.parser = PaperParser()
+        self.software_extractor = SoftwareExtractor()
         self.generator = CodeGenerator()
         self.tester = CodeTester()
         self.docker_generator = DockerConfigGenerator()
@@ -48,6 +50,12 @@ class PaperToCodeWorkflow:
         logger.info("Extracting sections from paper...")
         sections = await self.parser.extract_sections(paper_text)
         logger.info(f"Found {len(sections)} sections in the paper")
+
+        # Extract software mentions
+        logger.info("Extracting software mentions...")
+        software_list = await self.software_extractor.extract_software(paper_text)
+        formatted_output = self.software_extractor.format_output(software_list)
+        logger.info("\n" + formatted_output)
 
         code_blocks = []
         for i, section in enumerate(sections, 1):
@@ -86,11 +94,11 @@ class PaperToCodeWorkflow:
         # Generate Docker configurations
         logger.info("\nGenerating Docker configurations...")
         logger.info("Creating Dockerfile...")
-        dockerfile_content = await self.docker_generator.generate_dockerfile(code_blocks)
+        dockerfile_content = await self.docker_generator.generate_dockerfile(code_blocks, software_list)
         logger.info("Dockerfile generation completed")
         
         logger.info("Creating docker-compose.yml...")
-        compose_content = await self.docker_generator.generate_compose(code_blocks)
+        compose_content = await self.docker_generator.generate_compose(code_blocks, software_list)
         logger.info("docker-compose.yml generation completed")
 
         return code_blocks, dockerfile_content, compose_content

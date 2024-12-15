@@ -7,6 +7,9 @@ import httpx
 import openai
 from pydantic import BaseModel, Field
 import tiktoken
+import logging
+
+logger = logging.getLogger(__name__)
 
 class OllamaRequest(BaseModel):
     """Request model for Ollama API."""
@@ -47,7 +50,7 @@ class OllamaClient(AIClient):
             base_url=base_url,
             timeout=httpx.Timeout(300.0)  # 5 minutes timeout
         )
-        self.model = "llama3.2:latest"  # Default model
+        self.model = "llama3.2"  # Default to llama2 model
     
     async def generate(self, prompt: str, **kwargs) -> str:
         """Generate a response from Ollama.
@@ -59,6 +62,7 @@ class OllamaClient(AIClient):
         Returns:
             Generated text response
         """
+        logger.info(f"Generating response from Ollama with prompt: {prompt}")
         request = OllamaRequest(
             model=self.model,
             prompt=prompt,
@@ -168,11 +172,16 @@ def get_ai_client() -> AIClient:
     Returns:
         An instance of AIClient (either OllamaClient or OpenAIClient)
     """
-    ai_provider = os.getenv("AI_PROVIDER", "ollama").lower()
+    provider = os.getenv("AI_PROVIDER", "openai").lower()
     
-    if ai_provider == "ollama":
+    logger.info(f"Instantiating AI client for provider: {provider}")
+    
+    if provider == "ollama":
         return OllamaClient()
-    elif ai_provider == "openai":
+    elif provider == "openai":
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required when using OpenAI provider")
         return OpenAIClient()
     else:
-        raise ValueError(f"Unknown AI provider: {ai_provider}. Must be 'ollama' or 'openai'.")
+        raise ValueError(f"Unsupported AI provider: {provider}. Must be one of: ollama, openai")

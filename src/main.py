@@ -1,18 +1,15 @@
-"""Main entry point for the Paper2Code project.
-
-This module provides the main functionality to convert academic papers into
-executable code using AI-powered agents.
-"""
+"""Main entry point for Paper2Code."""
 
 import asyncio
-import os
 import logging
-from pathlib import Path
-from PyPDF2 import PdfReader
+import os
 from dotenv import load_dotenv
+from pathlib import Path
+import random
+import string
 
+from parsers.paper_parser import read_paper
 from crew.workflows import PaperToCodeWorkflow
-from ai_client import get_ai_client
 
 # Configure logging
 logging.basicConfig(
@@ -22,66 +19,99 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
+def load_environment():
+    """Load environment variables from .env file."""
+    env_path = Path(__file__).resolve().parent.parent / '.env'
+    if not env_path.exists():
+        logger.warning(f"No .env file found at {env_path}")
+        return
+    
+    load_dotenv(env_path)
+    logger.info(f"Loaded environment from {env_path}")
+    
+    # Read values from .env file directly
+    ai_provider = os.getenv('AI_PROVIDER')
+    paper_path = os.getenv('PAPER_PATH')
+    openai_api_key = os.getenv('OPENAI_API_KEY')
+    
+    logger.info(f"AI_PROVIDER is set to: {ai_provider}")
+    logger.info(f"PAPER_PATH is set to: {paper_path}")
+    logger.info(f"OPENAI_API_KEY is set to: {openai_api_key}")
 
-def read_paper(file_path: str) -> str:
-    """Read paper content from a file, supporting both PDF and text formats.
-    
-    Args:
-        file_path: Path to the paper file
-        
-    Returns:
-        String content of the paper
-    """
-    file_path = Path(file_path)
-    logger.info(f"Reading paper from: {file_path}")
-    
-    if file_path.suffix.lower() == '.pdf':
-        # Handle PDF files
-        logger.info("Detected PDF format, extracting text...")
-        reader = PdfReader(file_path)
-        text = ""
-        total_pages = len(reader.pages)
-        logger.info(f"Processing {total_pages} pages...")
-        
-        for i, page in enumerate(reader.pages, 1):
-            logger.info(f"Extracting text from page {i}/{total_pages}")
-            text += page.extract_text()
-            
-        logger.info("PDF text extraction completed")
-        return text
-    else:
-        # Handle text files
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return f.read()
+# Function to generate a random alphanumeric string of fixed length
+def generate_random_string(length=8):
+    letters_and_digits = string.ascii_letters + string.digits
+    return ''.join(random.choice(letters_and_digits) for i in range(length))
 
 async def main():
     """Main function to process papers and generate code."""
     logger.info("Starting Paper2Code")
     
-    # Initialize AI client based on environment variable
-    ai_client = get_ai_client()
-    
     try:
-        # Example paper path - replace with actual path
-        paper_path = "examples/paper.pdf"
+        # Load environment variables
+        load_environment()
+        
+        # Get paper path from environment or use default
+        paper_path = os.getenv("PAPER_PATH", "examples/paper.pdf")
+        logger.info(f"Reading paper from: {paper_path}")
         
         # Read paper content
         paper_content = read_paper(paper_path)
         
-        # Generate code using AI
-        prompt = f"Convert this academic paper into executable code:\n\n{paper_content}"
-        response = await ai_client.generate(prompt)
+        # Initialize and run the workflow
+        workflow = PaperToCodeWorkflow()
+        code_blocks, dockerfile, compose_file = await workflow.process_paper(paper_content)
         
-        logger.info("Generated code from paper:")
-        print(response)
+        # Print the results
+        if code_blocks:
+            print("\nGenerated Code Blocks:")
+            print("=" * 80)
+            for i, block in enumerate(code_blocks, 1):
+                print(f"\nCode Block {i}:")
+                print(f"Language: {block.language}")
+                print(f"Description: {block.description}")
+                print("Code:")
+                print("-" * 40)
+                print(block.code)
+                print("-" * 40)
+        else:
+            print("\nNo code blocks were generated.")
+        
+        if dockerfile:
+            print("\nGenerated Dockerfile:")
+            print("=" * 80)
+            print(dockerfile)
+        else:
+            print("\nNo Dockerfile was generated.")
+        
+        if compose_file:
+            print("\nGenerated docker-compose.yml:")
+            print("=" * 80)
+            print(compose_file)
+        else:
+            print("\nNo docker-compose.yml was generated.")
+        
+        # Create outputs directory if it doesn't exist
+        outputs_dir = Path('outputs')
+        outputs_dir.mkdir(exist_ok=True)
+
+        # Create a random directory name and path
+        random_dir_name = generate_random_string()
+        random_dir_path = outputs_dir / random_dir_name
+        random_dir_path.mkdir(exist_ok=True)
+
+        # Save Dockerfile and docker-compose.yml in the random directory
+        if dockerfile:
+            with open(random_dir_path / 'Dockerfile', 'w') as dockerfile_file:
+                dockerfile_file.write(dockerfile)
+
+        if compose_file:
+            with open(random_dir_path / 'docker-compose.yml', 'w') as composefile_file:
+                composefile_file.write(compose_file)
         
     except Exception as e:
         logger.error(f"Error processing paper: {e}")
         raise
-    finally:
-        await ai_client.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
